@@ -7,14 +7,13 @@ import requests
 from ..utils.s3_helper import upload_to_s3
 from ..utils.s3_config import RAW_FOLDER
 from datetime import datetime
+from ..utils.log_config import logger
 
-# Load API Key
 load_dotenv()
 API_KEY = os.getenv("GITHUB_API_KEY")
-s3 = boto3.client("s3")
 
 
-# Get GitHub Data
+
 def fetch_github_data(pages=2,per_pages=40):
     
     """
@@ -26,7 +25,8 @@ def fetch_github_data(pages=2,per_pages=40):
     """
     
     if not API_KEY:
-        raise ValueError("GitHub API key is missing, Please create an environment variable file and add as below \nGITHUB_API_KEY = 'Your Personal Access Key'")
+        logger.error("GitHub API key is missing, Please create an environment variable file and add as below \nGITHUB_API_KEY = 'Your Personal Access Key'")
+        raise ValueError("GitHub API Key is Missing")
     
     users_list = []
     base_url = f"https://api.github.com/search/users?q=followers:>500&sort=followers&"
@@ -40,17 +40,16 @@ def fetch_github_data(pages=2,per_pages=40):
             
             data = response.json().get("items", [])
             users_list.extend(data)
-            
+            logger.info(f"Fetched {len(data)} users from page {page}")
             
         elif response.status_code == 403 :
             
-            print("RateLimitError - Status code : ", response.status_code)
-            print("sleeping for 60 sec")
+            logger.warning("Rate Limit Error (403). Sleeping for 60 seconds before retrying...")
             time.sleep(60)
         else:
             
-            
-            raise RuntimeError(f"Failed to fetch {page}: ", response.status_code)
+            logger.error(f"Failed to fetch {page}: ", response.status_code)
+            raise RuntimeError(f"API request failed with status code {response.status_code}")
     
     
     return users_list
@@ -59,10 +58,18 @@ def fetch_github_data(pages=2,per_pages=40):
 
 def upload_raw_data():
     
-    github_data = json.dumps(fetch_github_data())
-    
-    file_path = f"{RAW_FOLDER}/github_users_raw_{datetime.now().strftime(r'%Y%m%d_%H%M%S')}.json"
-    upload_to_s3(github_data, file_path)
-    
+    """Fetches GitHub data and uploads it to S3."""
+    try:
+        github_data = json.dumps(fetch_github_data())
+        
+        file_path = f"{RAW_FOLDER}/github_users_raw_{datetime.now().strftime(r'%Y%m%d_%H%M%S')}.json"
+        upload_to_s3(github_data, file_path)
+        logger.info(f"Uploaded raw data to S3: {file_path}")
+    except Exception as e:
+        logger.error(f"Failed to upload data to S3: {str(e)}")
 
-upload_raw_data()
+
+
+if __name__ == "__main__":
+
+    upload_raw_data()
